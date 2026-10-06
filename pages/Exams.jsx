@@ -140,7 +140,7 @@ export function ExamDetail() {
     const qs = isTeacher ? await q(supabase.from('questions').select('id,points').eq('exam_id', eid)) : []
     const subs = isTeacher
       ? []
-      : await q(supabase.from('submissions').select('id,attempt_no,status,submitted_at,grades(score,max_score,released)').eq('exam_id', eid).order('attempt_no'))
+      : await q(supabase.from('submissions').select('id,attempt_no,status,submitted_at,grades!grades_submission_id_fkey(score,max_score,released)').eq('exam_id', eid).order('attempt_no'))
     return { exam, qs, subs }
   }, [eid, id, isTeacher])
 
@@ -267,7 +267,7 @@ export function ExamQuestions() {
     const qs = await q(
       supabase
         .from('questions')
-        .select('id,type,body,points,position,choices(id,label,position),answer_keys(correct_choice_id,accepted_answers)')
+        .select('id,type,body,points,position,choices!choices_question_id_fkey(id,label,position),answer_keys!answer_keys_question_id_fkey(correct_choice_id,accepted_answers)')
         .eq('exam_id', eid)
         .order('position')
     )
@@ -530,7 +530,7 @@ export function ExamTake() {
         if (s.error) throw new Error(s.error)
         const [exam, questions, saved] = await Promise.all([
           q(supabase.from('exams').select('id,title,duration_minutes').eq('id', eid).maybeSingle()),
-          q(supabase.from('questions').select('id,type,body,points,position,choices(id,label,position)').eq('exam_id', eid).order('position')),
+          q(supabase.from('questions').select('id,type,body,points,position,choices!choices_question_id_fkey(id,label,position)').eq('exam_id', eid).order('position')),
           q(supabase.from('answers').select('question_id,choice_id,answer_text').eq('submission_id', s.submission_id)),
         ])
         if (!alive) return
@@ -751,7 +751,7 @@ export function ExamResult() {
       q(
         supabase
           .from('submissions')
-          .select('id,attempt_no,status,started_at,submitted_at,profiles(full_name),grades(score,max_score,released)')
+          .select('id,attempt_no,status,started_at,submitted_at,profiles!submissions_student_id_fkey(full_name),grades!grades_submission_id_fkey(score,max_score,released)')
           .eq('exam_id', eid)
           .order('attempt_no')
       )
@@ -884,7 +884,7 @@ export function SubmissionReview() {
     const sub = await q(
       supabase
         .from('submissions')
-        .select('id,attempt_no,status,submitted_at,profiles(full_name),grades(score,max_score,released)')
+        .select('id,attempt_no,status,submitted_at,profiles!submissions_student_id_fkey(full_name),grades!grades_submission_id_fkey(score,max_score,released)')
         .eq('id', sid)
         .eq('exam_id', eid)
         .maybeSingle()
@@ -894,7 +894,7 @@ export function SubmissionReview() {
       q(
         supabase
           .from('questions')
-          .select('id,type,body,points,position,choices(id,label,position),answer_keys(correct_choice_id,accepted_answers)')
+          .select('id,type,body,points,position,choices!choices_question_id_fkey(id,label,position),answer_keys!answer_keys_question_id_fkey(correct_choice_id,accepted_answers)')
           .eq('exam_id', eid)
           .order('position')
       ),

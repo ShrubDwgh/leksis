@@ -190,11 +190,11 @@ export function AssignmentView() {
     const subs = await q(
       supabase
         .from('submissions')
-        .select('id,student_id,content,link_url,submitted_at,status,profiles(full_name),grades(score,max_score,feedback,released)')
+        .select('id,student_id,content,link_url,submitted_at,status,profiles!submissions_student_id_fkey(full_name),grades!grades_submission_id_fkey(score,max_score,feedback,released)')
         .eq('assignment_id', aid)
         .order('submitted_at', { ascending: false })
     )
-    const members = isTeacher ? await q(supabase.from('class_members').select('student_id,profiles(full_name)').eq('class_id', id)) : []
+    const members = isTeacher ? await q(supabase.from('class_members').select('student_id,profiles!class_members_student_id_fkey(full_name)').eq('class_id', id)) : []
     return { a, subs, members }
   }, [aid, id, isTeacher])
 

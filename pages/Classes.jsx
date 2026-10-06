@@ -11,7 +11,7 @@ export function ClassList() {
   const { isTeacher } = useAuth()
   const nav = useNavigate()
   const { data, error, loading } = useLoad(
-    () => q(supabase.from('classes').select('id,name,description,profiles(full_name),class_members(count)').order('created_at', { ascending: false })),
+    () => q(supabase.from('classes').select('id,name,description,profiles!classes_teacher_id_fkey(full_name),class_members(count)').order('created_at', { ascending: false })),
     []
   )
   const [code, setCode] = useState('')
@@ -174,13 +174,13 @@ export function ClassDetail() {
   const [err, setErr] = useState('')
 
   const { data, error, loading, reload } = useLoad(async () => {
-    const cls = await q(supabase.from('classes').select('id,name,description,code,profiles(full_name)').eq('id', id).maybeSingle())
+    const cls = await q(supabase.from('classes').select('id,name,description,code,profiles!classes_teacher_id_fkey(full_name)').eq('id', id).maybeSingle())
     if (!cls) throw new Error('Kelas tidak ditemukan atau Anda tidak punya akses.')
     const [materials, assignments, exams, members, mine] = await Promise.all([
       q(supabase.from('materials').select('id,title,published,created_at').eq('class_id', id).order('created_at', { ascending: false })),
       q(supabase.from('assignments').select('id,title,published,due_at,created_at').eq('class_id', id).order('created_at', { ascending: false })),
       q(supabase.from('exams').select('id,title,published,starts_at,ends_at,created_at').eq('class_id', id).order('created_at', { ascending: false })),
-      isTeacher ? q(supabase.from('class_members').select('student_id,joined_at,profiles(full_name)').eq('class_id', id).order('joined_at')) : [],
+      isTeacher ? q(supabase.from('class_members').select('student_id,joined_at,profiles!class_members_student_id_fkey(full_name)').eq('class_id', id).order('joined_at')) : [],
       isTeacher ? [] : q(supabase.from('submissions').select('assignment_id,exam_id,status').eq('class_id', id)),
     ])
     return { cls, materials, assignments, exams, members, mine }

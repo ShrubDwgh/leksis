@@ -20,7 +20,7 @@ async function teacherData() {
     q(
       supabase
         .from('submissions')
-        .select('id,class_id,exam_id,assignment_id,submitted_at,profiles(full_name),exams(title),assignments(title)')
+        .select('id,class_id,exam_id,assignment_id,submitted_at,profiles!submissions_student_id_fkey(full_name),exams(title),assignments(title)')
         .in('class_id', ids)
         .neq('status', 'in_progress')
         .order('submitted_at', { ascending: false })
@@ -31,7 +31,7 @@ async function teacherData() {
 }
 
 async function studentData() {
-  const classes = await q(supabase.from('classes').select('id,name,profiles(full_name)').order('created_at', { ascending: false }))
+  const classes = await q(supabase.from('classes').select('id,name,profiles!classes_teacher_id_fkey(full_name)').order('created_at', { ascending: false }))
   const ids = classes.map((c) => c.id)
   if (!ids.length) return { classes, assignments: [], exams: [], subs: [], grades: [], feed: [] }
   const [assignments, exams, materials, subs, grades] = await Promise.all([
@@ -42,7 +42,7 @@ async function studentData() {
     q(
       supabase
         .from('grades')
-        .select('id,score,max_score,graded_at,class_id,submissions(exam_id,assignment_id,exams(title),assignments(title))')
+        .select('id,score,max_score,graded_at,class_id,submissions!grades_submission_id_fkey(exam_id,assignment_id,exams(title),assignments(title))')
         .order('graded_at', { ascending: false })
         .limit(5)
     ),
