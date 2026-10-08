@@ -28,6 +28,8 @@ export function ExamForm() {
 
 function ExamFormInner({ classId, exam, examId }) {
   const nav = useNavigate()
+  const { profile } = useAuth()
+  const subj = useLoad(() => (profile.school_id ? q(supabase.from('subjects').select('id,name').eq('school_id', profile.school_id).order('name')) : Promise.resolve([])), [profile.school_id])
   const [f, setF] = useState({
     title: exam.title || '',
     description: exam.description || '',
@@ -37,6 +39,11 @@ function ExamFormInner({ classId, exam, examId }) {
     attempts: exam.max_attempts ?? 1,
     show: exam.show_score ?? false,
     published: exam.published ?? false,
+    subject: exam.subject_id || '',
+    shuffleQ: exam.shuffle_questions ?? false,
+    shuffleO: exam.shuffle_options ?? false,
+    guard: exam.anticheat ?? true,
+    limit: exam.violation_limit ?? 0,
   })
   const [err, setErr] = useState('')
   const [busy, setBusy] = useState(false)
@@ -51,12 +58,14 @@ function ExamFormInner({ classId, exam, examId }) {
     if (dur !== null && (!Number.isInteger(dur) || dur < 1 || dur > 600)) return setErr('Durasi 1 sampai 600 menit, atau kosongkan.')
     const att = Number(f.attempts)
     if (!Number.isInteger(att) || att < 1 || att > 10) return setErr('Jumlah percobaan 1 sampai 10.')
+    const lim = Number(f.limit)
+    if (!Number.isInteger(lim) || lim < 0 || lim > 20) return setErr('Batas pelanggaran 0 sampai 20 (0 = hanya peringatan, tanpa kumpul otomatis).')
     const starts = fromInput(f.starts)
     const ends = fromInput(f.ends)
     if (starts && ends && new Date(ends) <= new Date(starts)) return setErr('Batas akhir harus setelah jadwal mulai.')
     setBusy(true)
     try {
-      const payload = { title, description: f.description, duration_minutes: dur, starts_at: starts, ends_at: ends, max_attempts: att, show_score: f.show, published: f.published }
+      const payload = { title, description: f.description, duration_minutes: dur, starts_at: starts, ends_at: ends, max_attempts: att, show_score: f.show, published: f.published, subject_id: f.subject || null, shuffle_questions: f.shuffleQ, shuffle_options: f.shuffleO, anticheat: f.guard, violation_limit: lim }
       if (examId) {
         await q(supabase.from('exams').update(payload).eq('id', examId))
         nav(`/kelas/${classId}/ujian/${examId}`)
@@ -91,6 +100,18 @@ function ExamFormInner({ classId, exam, examId }) {
         <Field label="Deskripsi / petunjuk">
           <textarea maxLength={5000} value={f.description} onChange={set('description')} />
         </Field>
+        {subj.data && subj.data.length > 0 && (
+          <Field label="Mata pelajaran">
+            <select value={f.subject} onChange={set('subject')}>
+              <option value="">— tidak dipilih —</option>
+              {subj.data.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name}
+                </option>
+              ))}
+            </select>
+          </Field>
+        )}
         <Field label="Durasi (menit)" hint="Kosongkan jika tanpa batas durasi.">
           <input type="number" inputMode="numeric" min="1" max="600" value={f.duration} onChange={set('duration')} />
         </Field>
@@ -103,6 +124,23 @@ function ExamFormInner({ classId, exam, examId }) {
         <Field label="Jumlah percobaan">
           <input type="number" inputMode="numeric" min="1" max="10" value={f.attempts} onChange={set('attempts')} />
         </Field>
+        <label className="check">
+          <input type="checkbox" checked={f.shuffleQ} onChange={set('shuffleQ')} />
+          Acak urutan soal untuk tiap siswa
+        </label>
+        <label className="check">
+          <input type="checkbox" checked={f.shuffleO} onChange={set('shuffleO')} />
+          Acak urutan pilihan jawaban (pilihan ganda)
+        </label>
+        <label className="check">
+          <input type="checkbox" checked={f.guard} onChange={set('guard')} />
+          Aktifkan proteksi anti-curang (layar penuh, deteksi pindah tab, watermark, log)
+        </label>
+        {f.guard && (
+          <Field label="Kumpulkan otomatis setelah ... pelanggaran" hint="0 = hanya peringatan dan dicatat (disarankan). Di HP, notifikasi atau telepon masuk bisa tercatat sebagai pelanggaran.">
+            <input type="number" inputMode="numeric" min="0" max="20" value={f.limit} onChange={set('limit')} />
+          </Field>
+        )}
         <label className="check">
           <input type="checkbox" checked={f.show} onChange={set('show')} />
           Tampilkan nilai langsung setelah dinilai (kunci jawaban baru terbuka setelah ujian ditutup)
@@ -201,6 +239,9 @@ export function ExamDetail() {
             </button>
             <Link className="btn alt sm" to={`/kelas/${id}/ujian/${eid}/edit`}>
               Edit pengaturan
+            </Link>
+            <Link className="btn alt sm" to={`/kelas/${id}/ujian/${eid}/log`}>
+              Log & pelanggaran
             </Link>
           </div>
         </>
@@ -499,241 +540,6 @@ function QuestionEditor({ examId, question, nextPos, hasSubs, onDone, onCancel }
         </button>
       </div>
     </div>
-  )
-}
-
-/* ------------------------------------------------------------------ */
-/* Pengerjaan ujian (siswa)                                            */
-/* ------------------------------------------------------------------ */
-const hasAnswer = (a) => Boolean(a && (a.choice_id || (a.answer_text || '').trim()))
-
-export function ExamTake() {
-  const { id, eid } = useParams()
-  const nav = useNavigate()
-  const [st, setSt] = useState({ phase: 'loading' })
-  const [answers, setAnswers] = useState({})
-  const [cur, setCur] = useState(0)
-  const [save, setSave] = useState('saved') // saved | saving | error
-  const [left, setLeft] = useState(null)
-  const [msg, setMsg] = useState('')
-  const answersRef = useRef({})
-  const dirty = useRef(new Set())
-  const timers = useRef({})
-  const sid = useRef(null)
-  const submitting = useRef(false)
-
-  useEffect(() => {
-    let alive = true
-    ;(async () => {
-      try {
-        const s = await q(supabase.rpc('start_exam', { p_exam: eid }))
-        if (s.error) throw new Error(s.error)
-        const [exam, questions, saved] = await Promise.all([
-          q(supabase.from('exams').select('id,title,duration_minutes').eq('id', eid).maybeSingle()),
-          q(supabase.from('questions').select('id,type,body,points,position,choices!choices_question_id_fkey(id,label,position)').eq('exam_id', eid).order('position')),
-          q(supabase.from('answers').select('question_id,choice_id,answer_text').eq('submission_id', s.submission_id)),
-        ])
-        if (!alive) return
-        sid.current = s.submission_id
-        const map = {}
-        saved.forEach((a) => (map[a.question_id] = { choice_id: a.choice_id, answer_text: a.answer_text }))
-        answersRef.current = map
-        setAnswers(map)
-        setSt({ phase: 'ready', exam, qs: questions, deadline: s.deadline ? new Date(s.deadline).getTime() : null })
-      } catch (e) {
-        if (alive) setSt({ phase: 'error', error: e.message })
-      }
-    })()
-    return () => {
-      alive = false
-      Object.values(timers.current).forEach(clearTimeout)
-    }
-  }, [eid])
-
-  async function persist(qid) {
-    const a = answersRef.current[qid] || {}
-    setSave('saving')
-    const { error } = await supabase.rpc('save_answer', {
-      p_submission: sid.current,
-      p_question: qid,
-      p_choice: a.choice_id ?? null,
-      p_text: a.answer_text ?? null,
-    })
-    if (error) {
-      setSave('error')
-      return false
-    }
-    if (answersRef.current[qid] === a) dirty.current.delete(qid)
-    setSave(dirty.current.size ? 'saving' : 'saved')
-    return true
-  }
-
-  async function flush() {
-    Object.values(timers.current).forEach(clearTimeout)
-    let ok = true
-    for (const qid of [...dirty.current]) ok = (await persist(qid)) && ok
-    return ok
-  }
-
-  function change(qid, patch, now) {
-    answersRef.current = { ...answersRef.current, [qid]: { ...answersRef.current[qid], ...patch } }
-    setAnswers(answersRef.current)
-    dirty.current.add(qid)
-    clearTimeout(timers.current[qid])
-    if (now) persist(qid)
-    else timers.current[qid] = setTimeout(() => persist(qid), 700)
-  }
-
-  async function finish(auto = false) {
-    if (submitting.current) return
-    if (!auto) {
-      const open = st.qs.filter((qu) => !hasAnswer(answersRef.current[qu.id])).length
-      const text = open ? `Masih ada ${open} soal yang belum dijawab. Kumpulkan sekarang?` : 'Kumpulkan jawaban sekarang? Setelah ini tidak bisa diubah.'
-      if (!window.confirm(text)) return
-    }
-    submitting.current = true
-    setMsg('')
-    const ok = await flush()
-    if (!ok && !auto) {
-      submitting.current = false
-      return setMsg('Sebagian jawaban belum tersimpan. Periksa koneksi lalu coba lagi.')
-    }
-    const { error } = await supabase.rpc('submit_exam', { p_submission: sid.current })
-    if (error) {
-      submitting.current = false
-      return setMsg(error.message)
-    }
-    nav(`/kelas/${id}/ujian/${eid}/hasil`, { replace: true })
-  }
-
-  // Hitung mundur. Batas waktu sebenarnya dijaga server; ini hanya tampilan + kumpul otomatis.
-  const deadline = st.deadline
-  useEffect(() => {
-    if (!deadline) return
-    const tick = () => {
-      const ms = deadline - Date.now()
-      setLeft(Math.max(0, ms))
-      if (ms <= 0) finish(true)
-    }
-    tick()
-    const t = setInterval(tick, 1000)
-    return () => clearInterval(t)
-  }, [deadline]) // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Coba simpan ulang otomatis jika koneksi sempat putus.
-  useEffect(() => {
-    if (save !== 'error') return
-    const t = setTimeout(flush, 5000)
-    return () => clearTimeout(t)
-  }, [save]) // eslint-disable-line react-hooks/exhaustive-deps
-
-  useEffect(() => {
-    const warn = (e) => {
-      if (dirty.current.size) e.preventDefault()
-    }
-    window.addEventListener('beforeunload', warn)
-    return () => window.removeEventListener('beforeunload', warn)
-  }, [])
-
-  if (st.phase === 'loading') return <Loading />
-  if (st.phase === 'error')
-    return (
-      <>
-        <Back to={`/kelas/${id}/ujian/${eid}`}>Ujian</Back>
-        <ErrorBox error={st.error} />
-      </>
-    )
-
-  const { exam, qs } = st
-  if (!qs.length) return <ErrorBox error="Ujian ini belum memiliki soal." />
-  const qu = qs[cur]
-  const a = answers[qu.id] || {}
-  const answered = qs.filter((x) => hasAnswer(answers[x.id])).length
-  const mm = left === null ? null : `${String(Math.floor(left / 60000)).padStart(2, '0')}:${String(Math.floor((left % 60000) / 1000)).padStart(2, '0')}`
-
-  return (
-    <>
-      <div className="examtop">
-        <div className="between">
-          <b>{exam.title}</b>
-          {mm && <span className={`timer ${left < 60000 ? 'err-text' : ''}`}>{mm}</span>}
-        </div>
-        <div className="bar" aria-hidden="true">
-          <i style={{ width: `${(answered / qs.length) * 100}%` }} />
-        </div>
-        <div className="between small muted">
-          <span>
-            {answered} dari {qs.length} terjawab
-          </span>
-          <span>{save === 'saved' ? 'Tersimpan' : save === 'saving' ? 'Menyimpan…' : 'Gagal menyimpan, mencoba lagi…'}</span>
-        </div>
-      </div>
-
-      <div style={{ marginTop: '.6rem' }}>
-        <p className="small muted">
-          Soal {cur + 1} dari {qs.length} · {num(qu.points)} poin
-        </p>
-        <div className="pre" style={{ fontSize: '1.05rem', margin: '.4rem 0 .8rem' }}>
-          {qu.body}
-        </div>
-
-        {isChoice(qu.type) &&
-          byPos(qu.choices).map((c) => (
-            <label key={c.id} className={`opt ${a.choice_id === c.id ? 'on' : ''}`}>
-              <input type="radio" name={`q${qu.id}`} checked={a.choice_id === c.id} onChange={() => change(qu.id, { choice_id: c.id, answer_text: null }, true)} />
-              <span>{c.label}</span>
-            </label>
-          ))}
-        {qu.type === 'jawaban_singkat' && (
-          <input
-            maxLength={500}
-            placeholder="Tulis jawaban singkat"
-            aria-label="Jawaban"
-            value={a.answer_text || ''}
-            onChange={(e) => change(qu.id, { answer_text: e.target.value, choice_id: null })}
-            onBlur={() => dirty.current.has(qu.id) && persist(qu.id)}
-          />
-        )}
-        {qu.type === 'essay' && (
-          <textarea
-            style={{ minHeight: 180 }}
-            maxLength={10000}
-            placeholder="Tulis jawaban Anda"
-            aria-label="Jawaban"
-            value={a.answer_text || ''}
-            onChange={(e) => change(qu.id, { answer_text: e.target.value, choice_id: null })}
-            onBlur={() => dirty.current.has(qu.id) && persist(qu.id)}
-          />
-        )}
-      </div>
-
-      <div className="between" style={{ marginTop: '1rem' }}>
-        <button className="btn alt" disabled={cur === 0} onClick={() => setCur(cur - 1)}>
-          Sebelumnya
-        </button>
-        {cur < qs.length - 1 ? (
-          <button className="btn" onClick={() => setCur(cur + 1)}>
-            Berikutnya
-          </button>
-        ) : (
-          <button className="btn cyan" onClick={() => finish(false)}>
-            Kumpulkan
-          </button>
-        )}
-      </div>
-
-      <div className="qnav" role="navigation" aria-label="Nomor soal">
-        {qs.map((x, i) => (
-          <button key={x.id} className={i === cur ? 'cur' : hasAnswer(answers[x.id]) ? 'done' : ''} onClick={() => setCur(i)} aria-label={`Soal ${i + 1}${hasAnswer(answers[x.id]) ? ', sudah dijawab' : ''}`}>
-            {i + 1}
-          </button>
-        ))}
-      </div>
-      {msg && <Notice kind="err">{msg}</Notice>}
-      <button className="btn cyan" style={{ width: '100%' }} onClick={() => finish(false)}>
-        Kumpulkan jawaban
-      </button>
-    </>
   )
 }
 

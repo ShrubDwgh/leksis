@@ -69,14 +69,11 @@ export function Landing() {
   )
 }
 
-export function Login() {
-  const { session } = useAuth()
-  const loc = useLocation()
+export function LoginForm() {
   const [email, setEmail] = useState('')
   const [pw, setPw] = useState('')
   const [err, setErr] = useState('')
   const [busy, setBusy] = useState(false)
-  if (session) return <Navigate to={loc.state?.from?.pathname || '/dashboard'} replace />
 
   async function submit(e) {
     e.preventDefault()
@@ -88,6 +85,26 @@ export function Login() {
   }
 
   return (
+    <form onSubmit={submit}>
+      <Field label="Email">
+        <input type="email" autoComplete="email" required value={email} onChange={(e) => setEmail(e.target.value)} />
+      </Field>
+      <Field label="Kata sandi">
+        <input type="password" autoComplete="current-password" required value={pw} onChange={(e) => setPw(e.target.value)} />
+      </Field>
+      {err && <Notice kind="err">{err}</Notice>}
+      <button className="btn" disabled={busy} style={{ width: '100%' }}>
+        {busy ? 'Masuk…' : 'Masuk'}
+      </button>
+    </form>
+  )
+}
+
+export function Login() {
+  const { session } = useAuth()
+  const loc = useLocation()
+  if (session) return <Navigate to={loc.state?.from?.pathname || '/dashboard'} replace />
+  return (
     <Shell
       title="Masuk"
       foot={
@@ -96,18 +113,7 @@ export function Login() {
         </>
       }
     >
-      <form onSubmit={submit}>
-        <Field label="Email">
-          <input type="email" autoComplete="email" required value={email} onChange={(e) => setEmail(e.target.value)} />
-        </Field>
-        <Field label="Kata sandi">
-          <input type="password" autoComplete="current-password" required value={pw} onChange={(e) => setPw(e.target.value)} />
-        </Field>
-        {err && <Notice kind="err">{err}</Notice>}
-        <button className="btn" disabled={busy} style={{ width: '100%' }}>
-          {busy ? 'Masuk…' : 'Masuk'}
-        </button>
-      </form>
+      <LoginForm />
       <p className="small">
         <Link to="/forgot-password">Lupa kata sandi?</Link>
       </p>
@@ -115,9 +121,16 @@ export function Login() {
   )
 }
 
+const ROLE_HELP = {
+  student: 'Masukkan kode sekolah jika sekolah Anda sudah memakai Leksis. Kode kelas dipakai nanti untuk bergabung ke kelas.',
+  teacher: 'Dengan kode guru dari admin sekolah, akun Anda tergabung ke sekolah. Tanpa kode, akun dipakai mandiri.',
+  parent: 'Setelah masuk, hubungkan akun ini dengan anak memakai kode dari Profil anak.',
+  school_admin: 'Anda membuat sekolah baru dan menjadi admin pertamanya, lalu bisa mengundang guru dan siswa dengan kode.',
+}
+
 export function Register() {
   const { session } = useAuth()
-  const [f, setF] = useState({ name: '', email: '', pw: '', role: 'siswa' })
+  const [f, setF] = useState({ name: '', email: '', pw: '', role: 'student', school: '', code: '' })
   const [err, setErr] = useState('')
   const [sent, setSent] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -130,11 +143,27 @@ export function Register() {
     const name = f.name.trim()
     if (name.length < 2) return setErr('Nama lengkap minimal 2 karakter.')
     if (f.pw.length < 8) return setErr('Kata sandi minimal 8 karakter.')
+    if (f.role === 'school_admin' && f.school.trim().length < 2) return setErr('Isi nama sekolah.')
+    const code = f.code.trim().toUpperCase()
     setBusy(true)
+    if (code && (f.role === 'student' || f.role === 'teacher')) {
+      const { data: chk } = await supabase.rpc('check_school_code', { p_code: code })
+      if (!chk) {
+        setBusy(false)
+        return setErr('Kode sekolah tidak ditemukan.')
+      }
+      if (chk.kind !== f.role) {
+        setBusy(false)
+        return setErr(f.role === 'teacher' ? 'Itu kode siswa. Minta kode guru ke admin sekolah.' : 'Itu kode guru. Minta kode siswa ke admin sekolah.')
+      }
+    }
     const { data, error } = await supabase.auth.signUp({
       email: f.email.trim(),
       password: f.pw,
-      options: { data: { full_name: name, role: f.role }, emailRedirectTo: `${window.location.origin}/login` },
+      options: {
+        data: { full_name: name, role: f.role, school_name: f.role === 'school_admin' ? f.school.trim() : undefined, school_code: code || undefined },
+        emailRedirectTo: `${window.location.origin}/login`,
+      },
     })
     setBusy(false)
     if (error) return setErr(error.message)
@@ -160,17 +189,30 @@ export function Register() {
       <form onSubmit={submit}>
         <div className="seg2" role="group" aria-label="Saya mendaftar sebagai">
           {[
-            ['siswa', 'Saya siswa'],
-            ['guru', 'Saya guru'],
+            ['student', 'Siswa'],
+            ['teacher', 'Guru'],
+            ['parent', 'Orang tua'],
+            ['school_admin', 'Admin sekolah'],
           ].map(([v, l]) => (
             <button type="button" key={v} className={f.role === v ? 'on' : ''} onClick={() => setF({ ...f, role: v })}>
               {l}
             </button>
           ))}
         </div>
+        <p className="small muted">{ROLE_HELP[f.role]}</p>
         <Field label="Nama lengkap">
           <input autoComplete="name" required maxLength={100} value={f.name} onChange={set('name')} />
         </Field>
+        {f.role === 'school_admin' && (
+          <Field label="Nama sekolah">
+            <input required maxLength={150} value={f.school} onChange={set('school')} />
+          </Field>
+        )}
+        {(f.role === 'student' || f.role === 'teacher') && (
+          <Field label={`Kode sekolah ${f.role === 'teacher' ? '(kode guru)' : '(kode siswa)'} — opsional`}>
+            <input maxLength={10} autoCapitalize="characters" value={f.code} onChange={(e) => setF({ ...f, code: e.target.value.toUpperCase() })} />
+          </Field>
+        )}
         <Field label="Email">
           <input type="email" autoComplete="email" required value={f.email} onChange={set('email')} />
         </Field>

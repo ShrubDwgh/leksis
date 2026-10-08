@@ -8,7 +8,7 @@ const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
 const newCode = () => Array.from(crypto.getRandomValues(new Uint8Array(6)), (b) => CODE_CHARS[b % 32]).join('')
 
 export function ClassList() {
-  const { isTeacher } = useAuth()
+  const { isTeacher, isAdmin } = useAuth()
   const nav = useNavigate()
   const { data, error, loading } = useLoad(
     () => q(supabase.from('classes').select('id,name,description,profiles!classes_teacher_id_fkey(full_name),class_members(count)').order('created_at', { ascending: false })),
@@ -70,7 +70,7 @@ export function ClassList() {
                 <div className="grow">
                   <b>{c.name}</b>
                   <span className="small muted">
-                    {isTeacher ? `${c.class_members?.[0]?.count || 0} siswa` : `Guru: ${c.profiles?.full_name || '—'}`}
+                    {isTeacher ? `${c.class_members?.[0]?.count || 0} siswa${isAdmin ? ` · Guru: ${c.profiles?.full_name || '—'}` : ''}` : `Guru: ${c.profiles?.full_name || '—'}`}
                   </span>
                 </div>
               </Link>
@@ -95,9 +95,22 @@ export function ClassForm() {
 
 function ClassFormInner({ cls, id }) {
   const nav = useNavigate()
+  const { profile, isAdmin, user } = useAuth()
+  const sid = profile.school_id
+  const showYear = Boolean(sid) && (!id || Boolean(cls.school_id))
+  const opts = useLoad(async () => {
+    if (!sid) return { years: [], teachers: [] }
+    const [years, teachers] = await Promise.all([
+      q(supabase.from('academic_years').select('id,year_name,semester,is_active').eq('school_id', sid).order('year_name', { ascending: false })),
+      isAdmin ? q(supabase.from('profiles').select('id,full_name').eq('school_id', sid).in('role', ['teacher', 'school_admin']).order('full_name')) : [],
+    ])
+    return { years, teachers }
+  }, [sid, isAdmin])
   const [name, setName] = useState(cls.name || '')
   const [desc, setDesc] = useState(cls.description || '')
   const [code, setCode] = useState(cls.code || '')
+  const [year, setYear] = useState(cls.academic_year_id || '')
+  const [teacher, setTeacher] = useState(cls.teacher_id || user.id)
   const [err, setErr] = useState('')
   const [busy, setBusy] = useState(false)
 
@@ -107,11 +120,12 @@ function ClassFormInner({ cls, id }) {
     if (!name.trim()) return setErr('Nama kelas wajib diisi.')
     setBusy(true)
     try {
+      const extra = { ...(showYear ? { academic_year_id: year || null } : {}), ...(isAdmin ? { teacher_id: teacher } : {}) }
       if (id) {
-        await q(supabase.from('classes').update({ name: name.trim(), description: desc, code }).eq('id', id))
+        await q(supabase.from('classes').update({ name: name.trim(), description: desc, code, ...extra }).eq('id', id))
         nav(`/kelas/${id}`)
       } else {
-        const r = await q(supabase.from('classes').insert({ name: name.trim(), description: desc }).select('id').single())
+        const r = await q(supabase.from('classes').insert({ name: name.trim(), description: desc, ...extra }).select('id').single())
         nav(`/kelas/${r.id}`)
       }
     } catch (e2) {
@@ -131,6 +145,29 @@ function ClassFormInner({ cls, id }) {
         <Field label="Deskripsi">
           <textarea maxLength={500} value={desc} onChange={(e) => setDesc(e.target.value)} />
         </Field>
+        {showYear && opts.data && (
+          <Field label="Tahun ajaran">
+            <select value={year} onChange={(e) => setYear(e.target.value)}>
+              <option value="">— tanpa tahun ajaran —</option>
+              {opts.data.years.map((y) => (
+                <option key={y.id} value={y.id}>
+                  {y.year_name} {y.semester}{y.is_active ? ' (aktif)' : ''}
+                </option>
+              ))}
+            </select>
+          </Field>
+        )}
+        {isAdmin && opts.data && (
+          <Field label="Guru pengampu">
+            <select value={teacher} onChange={(e) => setTeacher(e.target.value)}>
+              {opts.data.teachers.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.full_name || '(tanpa nama)'}
+                </option>
+              ))}
+            </select>
+          </Field>
+        )}
         {id ? (
           <Field label="Kode kelas" hint="Bagikan kode ini ke siswa. Buat kode baru jika kode lama sudah tersebar.">
             <div className="row">
@@ -344,7 +381,7 @@ export function ClassDetail() {
 
       {tab === 'anggota' && isTeacher && (
         <>
-          <p className="muted small">Bagikan kode <span className="code" style={{ background: 'var(--cyan-soft)', color: 'var(--navy)' }}>{cls.code}</span> agar siswa bisa bergabung.</p>
+          <p className="muted small">Bagikan kode <span className="code" style={{ background: 'var(--cyan-soft)', color: 'var(--ink)' }}>{cls.code}</span> agar siswa bisa bergabung.</p>
           {members.length ? (
             <ul className="list">
               {members.map((m) => (

@@ -1,14 +1,21 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
-import { supabase } from '../supabase.js'
+import { supabase, q } from '../supabase.js'
 import { useAuth } from '../auth.jsx'
-import { Badge, Field, Logo, Notice } from '../ui.jsx'
+import { Badge, ErrorBox, Field, Logo, Notice, useLoad } from '../ui.jsx'
+import { useTheme } from '../theme.jsx'
+
+const ROLE_LABEL = { super_admin: 'Super admin', school_admin: 'Admin sekolah', teacher: 'Guru', student: 'Siswa', parent: 'Orang tua' }
 
 export function Profile() {
   const { user, profile, refresh, signOut } = useAuth()
+  const { reload: reloadTheme } = useTheme()
   const [name, setName] = useState(profile.full_name)
   const [msg, setMsg] = useState(null)
   const [busy, setBusy] = useState(false)
+  const [code, setCode] = useState('')
+  const school = useLoad(() => (profile.school_id ? q(supabase.from('schools').select('name').eq('id', profile.school_id).maybeSingle()) : Promise.resolve(null)), [profile.school_id])
+  const pcode = useLoad(() => (profile.role === 'student' ? q(supabase.rpc('my_parent_code')) : Promise.resolve(null)), [profile.role])
 
   async function save(e) {
     e.preventDefault()
@@ -22,6 +29,23 @@ export function Profile() {
     setMsg({ kind: 'ok', text: 'Profil tersimpan.' })
   }
 
+  async function joinSchool(e) {
+    e.preventDefault()
+    const { error } = await supabase.rpc('join_school', { p_code: code })
+    if (error) return setMsg({ kind: 'err', text: error.message })
+    setCode('')
+    refresh()
+    reloadTheme()
+    setMsg({ kind: 'ok', text: 'Berhasil bergabung ke sekolah.' })
+  }
+
+  async function resetParentCode() {
+    if (!window.confirm('Buat kode baru? Kode lama tidak bisa dipakai lagi (orang tua yang sudah terhubung tetap terhubung).')) return
+    const { error } = await supabase.rpc('reset_parent_code')
+    if (error) return setMsg({ kind: 'err', text: error.message })
+    pcode.reload()
+  }
+
   return (
     <>
       <h1>Profil</h1>
@@ -33,13 +57,41 @@ export function Profile() {
           <input value={user.email || ''} disabled />
         </Field>
         <p>
-          Peran: <Badge>{profile.role === 'guru' ? 'Guru' : 'Siswa'}</Badge>
+          Peran: <Badge>{ROLE_LABEL[profile.role]}</Badge>
+          {profile.nis ? <span className="small muted"> · NIS/NIP {profile.nis}</span> : null}
         </p>
+        <p className="small muted">Sekolah: {profile.school_id ? school.data?.name || '…' : 'belum bergabung'}</p>
         {msg && <Notice kind={msg.kind}>{msg.text}</Notice>}
         <button className="btn" disabled={busy}>
           Simpan perubahan
         </button>
       </form>
+
+      {!profile.school_id && (profile.role === 'student' || profile.role === 'teacher') && (
+        <>
+          <div className="sec"><h2>Gabung ke sekolah</h2></div>
+          <form onSubmit={joinSchool} className="row">
+            <input className="grow" placeholder={profile.role === 'teacher' ? 'Kode guru dari sekolah' : 'Kode siswa dari sekolah'} aria-label="Kode sekolah" maxLength={10} required value={code} onChange={(e) => setCode(e.target.value.toUpperCase())} />
+            <button className="btn">Gabung</button>
+          </form>
+        </>
+      )}
+
+      {profile.role === 'student' && (
+        <>
+          <div className="sec"><h2>Kode orang tua</h2></div>
+          <p className="small muted">Berikan kode ini ke orang tua Anda agar bisa melihat kelas, kehadiran, dan nilai Anda (hanya-baca).</p>
+          {pcode.error ? (
+            <ErrorBox error={pcode.error} />
+          ) : (
+            <div className="row">
+              <span className="code" style={{ background: 'var(--cyan-soft)', color: 'var(--ink)' }}>{pcode.data || '…'}</span>
+              <button className="btn sm alt" onClick={resetParentCode}>Kode baru</button>
+            </div>
+          )}
+        </>
+      )}
+
       <ul className="list" style={{ marginTop: '1.5rem' }}>
         <li>
           <Link className="item" to="/pengaturan">

@@ -1,6 +1,7 @@
-import { Link } from 'react-router-dom'
+import { Link, Navigate } from 'react-router-dom'
 import { supabase, q } from '../supabase.js'
 import { useAuth } from '../auth.jsx'
+import { AdminHome } from './School.jsx'
 import { Badge, Empty, ErrorBox, Loading, fmt, num, pct, useLoad } from '../ui.jsx'
 
 const now = () => new Date()
@@ -103,7 +104,7 @@ function Teacher({ d }) {
                     <b>{c.name}</b>
                     <span className="small muted">{c.class_members?.[0]?.count || 0} siswa</span>
                   </div>
-                  <span className="code" style={{ background: 'var(--cyan-soft)', color: 'var(--navy)' }}>
+                  <span className="code" style={{ background: 'var(--cyan-soft)', color: 'var(--ink)' }}>
                     {c.code}
                   </span>
                 </Link>
@@ -281,7 +282,7 @@ function Student({ d }) {
   )
 }
 
-export function Dashboard() {
+function ClassDash() {
   const { profile, isTeacher } = useAuth()
   const { data, error, loading } = useLoad(() => (isTeacher ? teacherData() : studentData()), [isTeacher])
   const first = profile.full_name.trim().split(' ')[0]
@@ -291,4 +292,12 @@ export function Dashboard() {
       {loading ? <Loading /> : error ? <ErrorBox error={error} /> : isTeacher ? <Teacher d={data} /> : <Student d={data} />}
     </>
   )
+}
+
+export function Dashboard() {
+  const { profile } = useAuth()
+  if (profile.role === 'parent') return <Navigate to="/ortu" replace />
+  if (profile.role === 'super_admin') return <Navigate to="/admin/platform" replace />
+  if (profile.role === 'school_admin' && profile.school_id) return <AdminHome />
+  return <ClassDash />
 }
