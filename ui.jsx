@@ -77,3 +77,15 @@ export function useLoad(fn, deps) {
   }, [run])
   return { ...s, reload: run }
 }
+
+export function Modal({ title, children, actions }) {
+  return (
+    <div className="modal-bg" role="dialog" aria-modal="true" aria-label={title}>
+      <div className="modal">
+        <h2>{title}</h2>
+        {children}
+        <div className="row">{actions}</div>
+      </div>
+    </div>
+  )
+}

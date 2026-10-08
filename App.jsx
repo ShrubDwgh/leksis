@@ -1,13 +1,21 @@
 import { Link, NavLink, Navigate, Outlet, Route, Routes, useLocation } from 'react-router-dom'
 import { useAuth } from './auth.jsx'
 import { configured } from './supabase.js'
+import { useTheme, safeImg } from './theme.jsx'
 import { Loading, Logo } from './ui.jsx'
 import { Forgot, Landing, Login, Register, Reset } from './pages/Auth.jsx'
 import { Dashboard } from './pages/Dashboard.jsx'
 import { ClassDetail, ClassForm, ClassList } from './pages/Classes.jsx'
 import { AssignmentView, ItemForm, MaterialView } from './pages/Content.jsx'
-import { ExamDetail, ExamForm, ExamQuestions, ExamResult, ExamTake, SubmissionReview } from './pages/Exams.jsx'
+import { ExamDetail, ExamForm, ExamQuestions, ExamResult, SubmissionReview } from './pages/Exams.jsx'
+import { ExamLog, ExamTake } from './pages/ExamRoom.jsx'
 import { NotFound, Profile, Settings, Unauthorized } from './pages/Account.jsx'
+import { AdminHome, AdminSubjects, AdminUsers, AdminYears, PlatformAdmin } from './pages/School.jsx'
+import { BrandFooter, BrandingSettings, SchoolLogin } from './pages/Branding.jsx'
+import { Attendance, ParentChild, ParentHome, Schedule } from './pages/Academic.jsx'
+
+const MEMBERS = ['teacher', 'school_admin', 'student']
+const STAFF = ['teacher', 'school_admin']
 
 function Protected({ roles }) {
   const { session, profile, loading, signOut } = useAuth()
@@ -18,7 +26,7 @@ function Protected({ roles }) {
     return (
       <div className="full">
         <div>
-          <p>Profil akun tidak ditemukan. Pastikan supabase.sql sudah dijalankan, lalu masuk ulang.</p>
+          <p>Profil akun tidak ditemukan. Pastikan supabase.sql dan supabase-sekolah.sql sudah dijalankan, lalu masuk ulang.</p>
           <button className="btn" onClick={signOut}>
             Keluar
           </button>
@@ -38,39 +46,73 @@ const icons = {
       <path d="M4 21a8 8 0 0 1 16 0" />
     </>
   ),
+  cal: (
+    <>
+      <rect x="3" y="5" width="18" height="16" rx="2" />
+      <path d="M3 10h18M8 3v4M16 3v4" />
+    </>
+  ),
+  check: (
+    <>
+      <rect x="6" y="4" width="12" height="17" rx="2" />
+      <path d="M9 4h6v3H9zM9 14l2 2 4-4" />
+    </>
+  ),
+  school: <path d="M3 10l9-6 9 6M5 10v9h14v-9M9 19v-5h6v5" />,
 }
-const Tab = ({ to, icon, children }) => (
-  <NavLink to={to} className={({ isActive }) => (isActive ? 'active' : '')}>
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      {icons[icon]}
-    </svg>
-    {children}
-  </NavLink>
-)
+
+// Menu navigasi mengikuti peran (bawah di HP, sidebar di layar lebar)
+const MENUS = {
+  student: [['/dashboard', 'home', 'Beranda'], ['/kelas', 'kelas', 'Kelas'], ['/jadwal', 'cal', 'Jadwal'], ['/absensi', 'check', 'Absensi'], ['/profil', 'user', 'Profil']],
+  teacher: [['/dashboard', 'home', 'Beranda'], ['/kelas', 'kelas', 'Kelas'], ['/jadwal', 'cal', 'Jadwal'], ['/absensi', 'check', 'Absensi'], ['/profil', 'user', 'Profil']],
+  school_admin: [['/dashboard', 'home', 'Beranda'], ['/kelas', 'kelas', 'Kelas'], ['/jadwal', 'cal', 'Jadwal'], ['/admin', 'school', 'Sekolah'], ['/profil', 'user', 'Profil']],
+  parent: [['/ortu', 'home', 'Anak'], ['/profil', 'user', 'Profil']],
+  super_admin: [['/admin/platform', 'school', 'Platform'], ['/profil', 'user', 'Profil']],
+}
+const HOME = { parent: '/ortu', super_admin: '/admin/platform' }
 
 function Layout() {
   const { profile } = useAuth()
+  const { brand, brandName, preview, setPreview } = useTheme()
+  const loc = useLocation()
+  const menu = MENUS[profile.role] || MENUS.student
+  const banner = safeImg(brand.banner_url)
   return (
     <>
       <header className="top">
-        <Link to="/dashboard" className="brand">
-          <Logo /> Leksis
+        <Link to={HOME[profile.role] || '/dashboard'} className="brand">
+          {safeImg(brand.logo_url) ? <img className="logo-img" src={brand.logo_url} alt="" /> : <Logo />} {brandName}
         </Link>
         <nav className="tabs" aria-label="Navigasi utama">
-          <Tab to="/dashboard" icon="home">
-            Beranda
-          </Tab>
-          <Tab to="/kelas" icon="kelas">
-            Kelas
-          </Tab>
-          <Tab to="/profil" icon="user">
-            Profil
-          </Tab>
+          {menu.map(([to, ic, label]) => (
+            <NavLink key={to} to={to} end={to === '/admin'} className={({ isActive }) => (isActive ? 'active' : '')}>
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                {icons[ic]}
+              </svg>
+              {label}
+            </NavLink>
+          ))}
+          {banner && brand.banner_position === 'sidebar' && <img className="side-banner" src={banner} alt="" />}
         </nav>
         <span className="who">{profile.full_name}</span>
       </header>
       <main className="page">
+        {preview && (
+          <div className="previewbar">
+            <span>Mode pratinjau branding (belum disimpan)</span>
+            <span className="row">
+              <Link className="btn sm alt" to="/admin/settings/branding">
+                Pengaturan
+              </Link>
+              <button className="btn sm" onClick={() => setPreview(null)}>
+                Batalkan
+              </button>
+            </span>
+          </div>
+        )}
+        {banner && brand.banner_position === 'top' && loc.pathname === '/dashboard' && <img className="cover" src={banner} alt="" />}
         <Outlet />
+        <BrandFooter brand={brand} />
       </main>
     </>
   )
@@ -96,22 +138,28 @@ export default function App() {
       <Route path="/register" element={<Register />} />
       <Route path="/forgot-password" element={<Forgot />} />
       <Route path="/reset-password" element={<Reset />} />
+      <Route path="/sekolah/:slug" element={<SchoolLogin />} />
 
       <Route element={<Protected />}>
         <Route element={<Layout />}>
           <Route path="/dashboard" element={<Dashboard />} />
-          <Route path="/kelas" element={<ClassList />} />
-          <Route path="/kelas/:id" element={<ClassDetail />} />
-          <Route path="/kelas/:id/materi/:mid" element={<MaterialView />} />
-          <Route path="/kelas/:id/tugas/:aid" element={<AssignmentView />} />
-          <Route path="/kelas/:id/ujian/:eid" element={<ExamDetail />} />
-          <Route path="/kelas/:id/ujian/:eid/hasil" element={<ExamResult />} />
-          <Route path="/kelas/:id/ujian/:eid/hasil/:sid" element={<SubmissionReview />} />
           <Route path="/profil" element={<Profile />} />
           <Route path="/pengaturan" element={<Settings />} />
           <Route path="/unauthorized" element={<Unauthorized />} />
 
-          <Route element={<Protected roles={['guru']} />}>
+          <Route element={<Protected roles={MEMBERS} />}>
+            <Route path="/kelas" element={<ClassList />} />
+            <Route path="/kelas/:id" element={<ClassDetail />} />
+            <Route path="/kelas/:id/materi/:mid" element={<MaterialView />} />
+            <Route path="/kelas/:id/tugas/:aid" element={<AssignmentView />} />
+            <Route path="/kelas/:id/ujian/:eid" element={<ExamDetail />} />
+            <Route path="/kelas/:id/ujian/:eid/hasil" element={<ExamResult />} />
+            <Route path="/kelas/:id/ujian/:eid/hasil/:sid" element={<SubmissionReview />} />
+            <Route path="/jadwal" element={<Schedule />} />
+            <Route path="/absensi" element={<Attendance />} />
+          </Route>
+
+          <Route element={<Protected roles={STAFF} />}>
             <Route path="/kelas/baru" element={<ClassForm />} />
             <Route path="/kelas/:id/edit" element={<ClassForm />} />
             <Route path="/kelas/:id/materi/baru" element={<ItemForm kind="materi" />} />
@@ -121,9 +169,26 @@ export default function App() {
             <Route path="/kelas/:id/ujian/baru" element={<ExamForm />} />
             <Route path="/kelas/:id/ujian/:eid/edit" element={<ExamForm />} />
             <Route path="/kelas/:id/ujian/:eid/soal" element={<ExamQuestions />} />
+            <Route path="/kelas/:id/ujian/:eid/log" element={<ExamLog />} />
           </Route>
-          <Route element={<Protected roles={['siswa']} />}>
+          <Route element={<Protected roles={['student']} />}>
             <Route path="/kelas/:id/ujian/:eid/kerjakan" element={<ExamTake />} />
+          </Route>
+
+          <Route element={<Protected roles={['parent']} />}>
+            <Route path="/ortu" element={<ParentHome />} />
+            <Route path="/ortu/:sid" element={<ParentChild />} />
+          </Route>
+
+          <Route element={<Protected roles={['school_admin']} />}>
+            <Route path="/admin" element={<AdminHome />} />
+            <Route path="/admin/tahun" element={<AdminYears />} />
+            <Route path="/admin/mapel" element={<AdminSubjects />} />
+            <Route path="/admin/pengguna" element={<AdminUsers />} />
+            <Route path="/admin/settings/branding" element={<BrandingSettings />} />
+          </Route>
+          <Route element={<Protected roles={['super_admin']} />}>
+            <Route path="/admin/platform" element={<PlatformAdmin />} />
           </Route>
         </Route>
       </Route>

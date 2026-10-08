@@ -11,7 +11,7 @@
         { "key": "Strict-Transport-Security", "value": "max-age=63072000; includeSubDomains" },
         {
           "key": "Content-Security-Policy",
-          "value": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self' https://zzlhzijogydcyphnnifw.supabase.co wss://zzlhzijogydcyphnnifw.supabase.co; manifest-src 'self'; worker-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+          "value": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://zzlhzijogydcyphnnifw.supabase.co; font-src 'self'; connect-src 'self' https://zzlhzijogydcyphnnifw.supabase.co wss://zzlhzijogydcyphnnifw.supabase.co; manifest-src 'self'; worker-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
         }
       ]
     },

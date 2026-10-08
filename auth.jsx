@@ -30,7 +30,7 @@ export function AuthProvider({ children }) {
     let alive = true
     supabase
       .from('profiles')
-      .select('id,full_name,role')
+      .select('id,full_name,role,school_id,nis')
       .eq('id', uid)
       .maybeSingle()
       .then(({ data }) => alive && setProfile(data ?? null))
@@ -51,7 +51,11 @@ export function AuthProvider({ children }) {
       user: session?.user ?? null,
       profile: profile ?? null,
       loading: unknown || (Boolean(uid) && profile === undefined),
-      isTeacher: profile?.role === 'guru',
+      isTeacher: profile?.role === 'teacher' || profile?.role === 'school_admin',
+      isAdmin: profile?.role === 'school_admin',
+      isSuper: profile?.role === 'super_admin',
+      isParent: profile?.role === 'parent',
+      isStudent: profile?.role === 'student',
       refresh,
       signOut,
     }),
