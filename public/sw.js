@@ -1,7 +1,7 @@
 // Service worker Leksis — hanya menyimpan cache untuk app shell & aset statis milik sendiri.
 // Permintaan ke Supabase (lain origin), data akun, nilai, dan jawaban TIDAK PERNAH disentuh/di-cache.
 // Naikkan nomor VERSION jika ingin memaksa semua perangkat membuang cache lama.
-const VERSION = 'leksis-v2'
+const VERSION = 'leksis-v3'
 const SHELL = ['/', '/manifest.webmanifest', '/favicon.svg', '/favicon.ico', '/icons/icon-192.png', '/icons/icon-512.png']
 const STATIC = ['/manifest.webmanifest', '/favicon.svg', '/favicon.ico']
 
