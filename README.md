@@ -145,3 +145,20 @@ Data antar-sekolah terpisah: kelas mewarisi sekolah gurunya, siswa tidak bisa ma
 ## Belum teruji
 
 Seluruh versi 2 ditulis dan diperiksa sintaks/impor-nya, tetapi **belum dijalankan** di Supabase/Vercel sungguhan. Jika ada error saat menjalankan SQL atau membuka halaman, kirim pesan/screenshot-nya.
+
+
+## Profil akun tidak ditemukan / profil gagal dimuat
+
+Layar ini muncul saat sudah login tetapi data profil tidak bisa dibaca. Sekarang layar itu menampilkan **penyebab** dari server. Penanganan sesuai pesannya:
+
+1. **"column … does not exist" / "Could not find … in the schema cache"**: cache API belum memuat kolom baru. Jalankan di SQL Editor: `notify pgrst, 'reload schema';` lalu tekan *Coba lagi*. Jika kolomnya memang tidak ada, `supabase-sekolah.sql` belum selesai (lihat 2).
+2. **SQL berhenti di tengah**: jalankan ulang seluruh `supabase-sekolah.sql` (aman diulang), gulir ke bawah hasilnya dan baca pesan error terakhir. Kirim pesan itu jika ada.
+3. **"permission denied" / "row-level security"**: policy atau hak akses belum lengkap. Ulangi langkah 2.
+4. **Tanpa pesan (hanya "tidak ditemukan")**: akun ada di Authentication tetapi barisnya tidak ada di tabel `profiles`. Cek dengan query diagnostik ini:
+
+```sql
+select 'kolom school_id/nis (harus 2)' as cek, (select count(*) from information_schema.columns where table_schema='public' and table_name='profiles' and column_name in ('school_id','nis'))::text as hasil
+union all select 'policy di profiles (harus ada profiles_select)', (select string_agg(policyname, ', ') from pg_policies where schemaname='public' and tablename='profiles')
+union all select 'profil per peran', (select string_agg(role || '=' || n, ', ') from (select role, count(*) n from public.profiles group by role) t)
+union all select 'akun login tanpa profil', (select count(*) from auth.users u where not exists (select 1 from public.profiles p where p.id = u.id))::text;
+```

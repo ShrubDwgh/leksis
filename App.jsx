@@ -18,7 +18,7 @@ const MEMBERS = ['teacher', 'school_admin', 'student']
 const STAFF = ['teacher', 'school_admin']
 
 function Protected({ roles }) {
-  const { session, profile, loading, signOut } = useAuth()
+  const { session, profile, loading, signOut, profileError, refresh } = useAuth()
   const loc = useLocation()
   if (loading) return <Loading full />
   if (!session) return <Navigate to="/login" replace state={{ from: loc }} />
@@ -26,10 +26,17 @@ function Protected({ roles }) {
     return (
       <div className="full">
         <div>
-          <p>Profil akun tidak ditemukan. Pastikan supabase.sql dan supabase-sekolah.sql sudah dijalankan, lalu masuk ulang.</p>
-          <button className="btn" onClick={signOut}>
-            Keluar
-          </button>
+          <p>{profileError ? 'Profil akun gagal dimuat.' : 'Profil akun tidak ditemukan di database.'}</p>
+          {profileError && <p className="note err">Penyebab: {profileError}</p>}
+          <p className="small muted">Jika baru menjalankan SQL, jalankan juga: notify pgrst, 'reload schema'; di SQL Editor. Panduan lengkap ada di README bagian "Profil akun tidak ditemukan".</p>
+          <div className="row" style={{ justifyContent: 'center' }}>
+            <button className="btn alt" onClick={refresh}>
+              Coba lagi
+            </button>
+            <button className="btn" onClick={signOut}>
+              Keluar
+            </button>
+          </div>
         </div>
       </div>
     )

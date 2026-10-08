@@ -1074,3 +1074,6 @@ end $$;
 -- Hanya dua fungsi ini yang boleh dipanggil sebelum login (halaman login sekolah & cek kode saat daftar)
 grant execute on function public.school_public(text) to anon;
 grant execute on function public.check_school_code(text) to anon;
+
+-- Muat ulang cache skema API agar kolom/tabel/fungsi baru langsung dikenali
+notify pgrst, 'reload schema';

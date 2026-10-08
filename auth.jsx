@@ -8,6 +8,7 @@ export function AuthProvider({ children }) {
   const [session, setSession] = useState(undefined) // undefined = belum tahu
   const [profile, setProfile] = useState(undefined)
   const [ver, setVer] = useState(0)
+  const [profileError, setProfileError] = useState('')
 
   useEffect(() => {
     supabase.auth
@@ -33,7 +34,11 @@ export function AuthProvider({ children }) {
       .select('id,full_name,role,school_id,nis')
       .eq('id', uid)
       .maybeSingle()
-      .then(({ data }) => alive && setProfile(data ?? null))
+      .then(({ data, error }) => {
+        if (!alive) return
+        setProfileError(error ? error.message : '')
+        setProfile(data ?? null)
+      })
     return () => {
       alive = false
     }
@@ -50,6 +55,7 @@ export function AuthProvider({ children }) {
       session,
       user: session?.user ?? null,
       profile: profile ?? null,
+      profileError,
       loading: unknown || (Boolean(uid) && profile === undefined),
       isTeacher: profile?.role === 'teacher' || profile?.role === 'school_admin',
       isAdmin: profile?.role === 'school_admin',
@@ -59,7 +65,7 @@ export function AuthProvider({ children }) {
       refresh,
       signOut,
     }),
-    [session, profile, unknown, uid, refresh, signOut]
+    [session, profile, profileError, unknown, uid, refresh, signOut]
   )
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>
 }
